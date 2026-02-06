@@ -2,222 +2,196 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>NEON DASH OMEGA</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neon Dash Ultra</title>
 <style>
-html,body{margin:0;overflow:hidden;background:black;font-family:Arial}
-#menu{
-  position:fixed;inset:0;display:flex;flex-direction:column;
-  justify-content:center;align-items:center;
-  background:radial-gradient(#111,#000);
-  color:cyan;z-index:10
-}
-#menu h1{font-size:48px;text-shadow:0 0 25px cyan}
-#menu button{
-  margin:10px;padding:14px 40px;font-size:18px;
-  background:black;color:cyan;border:2px solid cyan;
-  box-shadow:0 0 15px cyan;cursor:pointer
-}
-#hud{position:fixed;top:0;left:0;width:100%}
-#progress{height:6px;background:cyan;box-shadow:0 0 12px cyan;width:0%}
-#energy{height:4px;background:magenta;width:100%}
+html,body{margin:0;overflow:hidden;background:#05070d;font-family:Arial}
 canvas{display:block}
+.panel{
+position:absolute;top:50%;left:50%;
+transform:translate(-50%,-50%);
+text-align:center;color:white
+}
+.btn{
+padding:14px 32px;margin:10px;
+background:linear-gradient(45deg,#ff2fb3,#7f00ff);
+border-radius:14px;cursor:pointer;
+box-shadow:0 0 25px #ff2fb3;
+font-weight:bold
+}
+.level{
+padding:16px;margin:12px;
+border-radius:14px;
+background:#11152c;
+box-shadow:0 0 18px #7f00ff
+}
+.locked{opacity:0.3}
 </style>
 </head>
-
 <body>
-<div id="menu">
-  <h1>NEON DASH : OMEGA</h1>
-  <button onclick="start(false)">PLAY</button>
-  <button onclick="start(true)">PRACTICE</button>
-</div>
 
 <canvas id="c"></canvas>
-<div id="hud">
-  <div id="progress"></div>
-  <div id="energy"></div>
+
+<div id="menu" class="panel">
+  <h1 style="font-size:48px;color:#ff2fb3">NEON DASH ULTRA</h1>
+  <div class="btn" onclick="openLevels()">PLAY</div>
+  <div class="btn" onclick="openShop()">SHOP</div>
 </div>
 
+<div id="levels" class="panel" style="display:none"></div>
+<div id="shop" class="panel" style="display:none"></div>
+
 <script>
-const c = document.getElementById("c");
-const ctx = c.getContext("2d");
-resize(); addEventListener("resize",resize);
-
+const c=document.getElementById("c"),ctx=c.getContext("2d");
 function resize(){c.width=innerWidth;c.height=innerHeight}
+resize();onresize=resize;
 
-let running=false, practice=false;
-let speed=7, timeScale=1, gravity=0.9;
-let progress=0, energy=100, deaths=0;
-let mode="cube", flip=1, inverted=false;
+let state="menu",currentLevel=0,practice=false;
+let x=200,y,vy=0,gravity=0.9,scroll=0,speed=7;
+let ground,attempts=0,shake=0;
+let mode="cube",coins=+localStorage.coins||0;
+let cubeColor=localStorage.color||"#ff2fb3";
+let checkpoints=[];
 
-const ground=()=>c.height*0.8;
+const levelsData=[
+{name:"Stereo Madness X",unlocked:true,
+objects:[
+{x:600,t:"spike"},{x:900,t:"pad"},
+{x:1200,t:"portal",m:"ship"},
+{x:1600,t:"spike"},
+{x:1900,t:"portal",m:"cube"},
+{x:2400,t:"finish"}
+]},
+{name:"Electro Vibes",unlocked:false,
+objects:[
+{x:500,t:"spike"},{x:800,t:"spike"},
+{x:1000,t:"portal",m:"wave"},
+{x:1400,t:"orb"},
+{x:1800,t:"portal",m:"cube"},
+{x:2300,t:"finish"}
+]}
+];
 
-const camera={zoom:1,rot:0,shake:0};
-
-const player={
-  x:180,y:0,s:40,vy:0,rot:0,
-  onGround:true,dashReady:true,trail:[]
-};
-
-let hazards=[], rewind=[], rewinding=false;
-let showHit=false;
-
-function start(p){
-  practice=p;
-  document.getElementById("menu").style.display="none";
-  reset(); running=true;
-}
-
-function reset(){
-  hazards=[]; rewind=[];
-  player.y=ground()-player.s;
-  player.vy=0; player.rot=0;
-  energy=100; progress=0;
-  mode="cube"; flip=1;
-}
-
-function spawn(){
-  hazards.push({
-    x:c.width+200,
-    type:Math.random()<0.4?"illusion":"spike",
-    fake:Math.random()<0.3
-  });
-}
-setInterval(()=>running&&spawn(),1100);
-
-function input(down){
-  if(!running)return;
-  if(down){
-    if(mode==="cube"&&player.onGround){
-      player.vy=-16*flip;player.onGround=false;
-    }
-    if((mode==="ship"||mode==="ufo")&&energy>0){
-      player.vy-=1.5*flip;energy-=0.5;
-    }
-    if(mode==="wave") player.vy=-7*flip;
-    if(mode==="ball") flip*=-1;
-    if(player.dashReady&&energy>20){
-      player.vy=-8*flip;energy-=20;
-      player.dashReady=false;camera.shake=15;
-    }
-  }
-}
-
-addEventListener("keydown",e=>{
-  if(e.code==="Space")input(true);
-  if(e.code==="ShiftLeft")timeScale=0.4;
-  if(e.code==="KeyR")rewinding=true;
-  if(e.code==="KeyH")showHit=!showHit;
+function openLevels(){
+menu.style.display="none";
+levels.innerHTML="<h2>SELECT LEVEL</h2>";
+levelsData.forEach((l,i)=>{
+levels.innerHTML+=`
+<div class="level ${l.unlocked?"":"locked"}">
+<b>${l.name}</b><br>
+${l.unlocked?`
+<div class="btn" onclick="startLevel(${i},false)">NORMAL</div>
+<div class="btn" onclick="startLevel(${i},true)">PRACTICE</div>`:"LOCKED"}
+</div>`;
 });
-addEventListener("keyup",()=>{timeScale=1;rewinding=false});
-addEventListener("mousedown",()=>input(true));
-addEventListener("touchstart",e=>{e.preventDefault();input(true)});
+levels.innerHTML+=`<div class="btn" onclick="backMenu()">BACK</div>`;
+levels.style.display="block";
+}
+
+function startLevel(i,p){
+if(!levelsData[i].unlocked)return;
+practice=p;currentLevel=i;
+levels.style.display="none";
+attempts++;scroll=0;vy=0;
+mode="cube";state="play";
+ground=c.height-120;y=ground;
+checkpoints=[];
+}
+
+function backMenu(){
+levels.style.display="none";
+shop.style.display="none";
+menu.style.display="block";
+}
+
+function openShop(){
+menu.style.display="none";
+shop.innerHTML=`<h2>SHOP<br>Coins: ${coins}</h2>`;
+["#ff2fb3","#00ffff","#00ff88","#ffaa00"].forEach(c=>{
+shop.innerHTML+=`<div class="btn" style="background:${c}" onclick="buy('${c}')">BUY</div>`;
+});
+shop.innerHTML+=`<div class="btn" onclick="backMenu()">BACK</div>`;
+shop.style.display="block";
+}
+
+function buy(c){cubeColor=c;localStorage.color=c}
+
+addEventListener("keydown",jump);
+addEventListener("mousedown",jump);
+function jump(){
+if(state!=="play")return;
+if(mode==="cube"&&y>=ground)vy=-15;
+if(mode==="ship")vy-=1.4;
+if(mode==="wave")vy=-vy||-12;
+}
+
+function die(){
+shake=20;
+if(practice&&checkpoints.length){
+let cp=checkpoints.at(-1);
+scroll=cp.scroll;y=cp.y;vy=0;
+}else{
+state="menu";menu.style.display="block";
+}
+}
 
 function update(){
-  requestAnimationFrame(update);
-  if(!running)return;
+ctx.setTransform(1,0,0,1,0,0);
+ctx.clearRect(0,0,c.width,c.height);
+ctx.translate(Math.random()*shake,Math.random()*shake);
+shake*=0.9;
 
-  // rewind buffer
-  rewind.push({y:player.y,vy:player.vy,energy,progress});
-  if(rewind.length>300)rewind.shift();
-  if(rewinding&&rewind.length){
-    let s=rewind.pop();
-    player.y=s.y;player.vy=s.vy;
-    energy=s.energy;progress=s.progress;
-    return;
-  }
+ctx.fillStyle="#070b1f";
+ctx.fillRect(0,0,c.width,c.height);
 
-  // adaptive difficulty
-  speed += progress>50?0.002:0.0005;
-  if(deaths>5)speed*=0.995;
+if(state==="play"){
+scroll+=speed;
+vy+=gravity;y+=vy;
+if(y>ground){y=ground;vy=0}
 
-  energy=Math.min(100,energy+0.1);
+ctx.fillStyle=cubeColor;
+ctx.fillRect(x,y-40,40,40);
 
-  camera.zoom=1+Math.sin(progress/40)*0.03;
-  camera.rot=Math.sin(progress/80)*0.02;
-  camera.shake*=0.9;
-
-  ctx.save();
-  ctx.translate(c.width/2,c.height/2);
-  ctx.scale(camera.zoom,camera.zoom);
-  ctx.rotate(camera.rot);
-  ctx.translate(-c.width/2+(Math.random()-0.5)*camera.shake,
-                -c.height/2);
-
-  ctx.globalCompositeOperation=inverted?"difference":"source-over";
-  ctx.fillStyle="#000";ctx.fillRect(0,0,c.width,c.height);
-
-  // grid
-  ctx.strokeStyle="#111";
-  for(let i=0;i<c.width;i+=40){
-    ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i,c.height);ctx.stroke();
-  }
-
-  // ground
-  ctx.fillStyle="#0ff";
-  ctx.fillRect(0,ground(),c.width,4);
-
-  // physics
-  player.vy+=gravity*flip*timeScale;
-  player.y+=player.vy*timeScale;
-  player.rot+=0.2*timeScale;
-
-  if((flip===1&&player.y>=ground()-player.s)||
-     (flip===-1&&player.y<=40)){
-    player.y=flip===1?ground()-player.s:40;
-    player.vy=0;player.onGround=true;
-    player.dashReady=true;
-  }
-
-  // trail
-  player.trail.push({x:player.x,y:player.y});
-  if(player.trail.length>20)player.trail.shift();
-  player.trail.forEach((p,i)=>{
-    ctx.globalAlpha=i/20;
-    ctx.fillStyle="magenta";
-    ctx.fillRect(p.x,p.y,40,40);
-  });
-  ctx.globalAlpha=1;
-
-  // player
-  ctx.save();
-  ctx.translate(player.x+20,player.y+20);
-  ctx.rotate(mode==="wave"?0:player.rot);
-  ctx.fillStyle="white";
-  ctx.fillRect(-20,-20,40,40);
-  ctx.restore();
-
-  if(showHit){
-    ctx.strokeStyle="lime";
-    ctx.strokeRect(player.x,player.y,40,40);
-  }
-
-  // hazards
-  hazards.forEach(h=>{
-    h.x-=speed*timeScale;
-    ctx.fillStyle=h.fake?"#333":"red";
-    ctx.beginPath();
-    ctx.moveTo(h.x,ground());
-    ctx.lineTo(h.x+20,ground()-40);
-    ctx.lineTo(h.x+40,ground());
-    ctx.fill();
-
-    if(!h.fake &&
-       player.x<h.x+40 &&
-       player.x+40>h.x &&
-       player.y+40>ground()-40){
-      deaths++;
-      practice?player.vy=-12:reset();
-    }
-  });
-
-  ctx.restore();
-
-  progress+=0.15*timeScale;
-  document.getElementById("progress").style.width=(progress%100)+"%";
-  document.getElementById("energy").style.width=energy+"%";
+levelsData[currentLevel].objects.forEach(o=>{
+let ox=o.x-scroll;
+if(o.t==="spike"){
+ctx.fillStyle="#ff2fb3";
+ctx.beginPath();
+ctx.moveTo(ox,y);
+ctx.lineTo(ox+30,y);
+ctx.lineTo(ox+15,y-40);
+ctx.fill();
+if(ox<x+40&&ox+30>x&&y>=ground-40)die();
 }
+if(o.t==="pad"){
+ctx.fillStyle="#ff0";
+ctx.fillRect(ox,y-10,40,10);
+if(ox<x+40&&ox+40>x&&y>=ground-1){
+vy=-22;coins++;localStorage.coins=coins;
+if(practice)checkpoints.push({scroll,y});
+}
+}
+if(o.t==="orb"){
+ctx.fillStyle="#0ff";
+ctx.beginPath();ctx.arc(ox+15,y-25,15,0,Math.PI*2);ctx.fill();
+if(ox<x+40&&ox+30>x)vy=-18;
+}
+if(o.t==="portal"){
+ctx.strokeStyle="#0ff";
+ctx.strokeRect(ox,y-60,40,60);
+if(ox<x+40&&ox+40>x)mode=o.m;
+}
+if(o.t==="finish"&&ox<x+40){
+levelsData[currentLevel+1]&&(levelsData[currentLevel+1].unlocked=true);
+state="menu";menu.style.display="block";
+}
+});
 
+ctx.fillStyle="white";
+ctx.fillText("Mode: "+mode,20,30);
+ctx.fillText("Attempts: "+attempts,20,50);
+}
+requestAnimationFrame(update);
+}
 update();
 </script>
 </body>
