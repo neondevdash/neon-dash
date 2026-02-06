@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>NEON DASH OMEGA</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html,body{margin:0;overflow:hidden;background:black;font-family:Arial}
+#menu{
+  position:fixed;inset:0;display:flex;flex-direction:column;
+  justify-content:center;align-items:center;
+  background:radial-gradient(#111,#000);
+  color:cyan;z-index:10
+}
+#menu h1{font-size:48px;text-shadow:0 0 25px cyan}
+#menu button{
+  margin:10px;padding:14px 40px;font-size:18px;
+  background:black;color:cyan;border:2px solid cyan;
+  box-shadow:0 0 15px cyan;cursor:pointer
+}
+#hud{position:fixed;top:0;left:0;width:100%}
+#progress{height:6px;background:cyan;box-shadow:0 0 12px cyan;width:0%}
+#energy{height:4px;background:magenta;width:100%}
+canvas{display:block}
+</style>
+</head>
+
+<body>
+<div id="menu">
+  <h1>NEON DASH : OMEGA</h1>
+  <button onclick="start(false)">PLAY</button>
+  <button onclick="start(true)">PRACTICE</button>
+</div>
+
+<canvas id="c"></canvas>
+<div id="hud">
+  <div id="progress"></div>
+  <div id="energy"></div>
+</div>
+
+<script>
+const c = document.getElementById("c");
+const ctx = c.getContext("2d");
+resize(); addEventListener("resize",resize);
+
+function resize(){c.width=innerWidth;c.height=innerHeight}
+
+let running=false, practice=false;
+let speed=7, timeScale=1, gravity=0.9;
+let progress=0, energy=100, deaths=0;
+let mode="cube", flip=1, inverted=false;
+
+const ground=()=>c.height*0.8;
+
+const camera={zoom:1,rot:0,shake:0};
+
+const player={
+  x:180,y:0,s:40,vy:0,rot:0,
+  onGround:true,dashReady:true,trail:[]
+};
+
+let hazards=[], rewind=[], rewinding=false;
+let showHit=false;
+
+function start(p){
+  practice=p;
+  document.getElementById("menu").style.display="none";
+  reset(); running=true;
+}
+
+function reset(){
+  hazards=[]; rewind=[];
+  player.y=ground()-player.s;
+  player.vy=0; player.rot=0;
+  energy=100; progress=0;
+  mode="cube"; flip=1;
+}
+
+function spawn(){
+  hazards.push({
+    x:c.width+200,
+    type:Math.random()<0.4?"illusion":"spike",
+    fake:Math.random()<0.3
+  });
+}
+setInterval(()=>running&&spawn(),1100);
+
+function input(down){
+  if(!running)return;
+  if(down){
+    if(mode==="cube"&&player.onGround){
+      player.vy=-16*flip;player.onGround=false;
+    }
+    if((mode==="ship"||mode==="ufo")&&energy>0){
+      player.vy-=1.5*flip;energy-=0.5;
+    }
+    if(mode==="wave") player.vy=-7*flip;
+    if(mode==="ball") flip*=-1;
+    if(player.dashReady&&energy>20){
+      player.vy=-8*flip;energy-=20;
+      player.dashReady=false;camera.shake=15;
+    }
+  }
+}
+
+addEventListener("keydown",e=>{
+  if(e.code==="Space")input(true);
+  if(e.code==="ShiftLeft")timeScale=0.4;
+  if(e.code==="KeyR")rewinding=true;
+  if(e.code==="KeyH")showHit=!showHit;
+});
+addEventListener("keyup",()=>{timeScale=1;rewinding=false});
+addEventListener("mousedown",()=>input(true));
+addEventListener("touchstart",e=>{e.preventDefault();input(true)});
+
+function update(){
+  requestAnimationFrame(update);
+  if(!running)return;
+
+  // rewind buffer
+  rewind.push({y:player.y,vy:player.vy,energy,progress});
+  if(rewind.length>300)rewind.shift();
+  if(rewinding&&rewind.length){
+    let s=rewind.pop();
+    player.y=s.y;player.vy=s.vy;
+    energy=s.energy;progress=s.progress;
+    return;
+  }
+
+  // adaptive difficulty
+  speed += progress>50?0.002:0.0005;
+  if(deaths>5)speed*=0.995;
+
+  energy=Math.min(100,energy+0.1);
+
+  camera.zoom=1+Math.sin(progress/40)*0.03;
+  camera.rot=Math.sin(progress/80)*0.02;
+  camera.shake*=0.9;
+
+  ctx.save();
+  ctx.translate(c.width/2,c.height/2);
+  ctx.scale(camera.zoom,camera.zoom);
+  ctx.rotate(camera.rot);
+  ctx.translate(-c.width/2+(Math.random()-0.5)*camera.shake,
+                -c.height/2);
+
+  ctx.globalCompositeOperation=inverted?"difference":"source-over";
+  ctx.fillStyle="#000";ctx.fillRect(0,0,c.width,c.height);
+
+  // grid
+  ctx.strokeStyle="#111";
+  for(let i=0;i<c.width;i+=40){
+    ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i,c.height);ctx.stroke();
+  }
+
+  // ground
+  ctx.fillStyle="#0ff";
+  ctx.fillRect(0,ground(),c.width,4);
+
+  // physics
+  player.vy+=gravity*flip*timeScale;
+  player.y+=player.vy*timeScale;
+  player.rot+=0.2*timeScale;
+
+  if((flip===1&&player.y>=ground()-player.s)||
+     (flip===-1&&player.y<=40)){
+    player.y=flip===1?ground()-player.s:40;
+    player.vy=0;player.onGround=true;
+    player.dashReady=true;
+  }
+
+  // trail
+  player.trail.push({x:player.x,y:player.y});
+  if(player.trail.length>20)player.trail.shift();
+  player.trail.forEach((p,i)=>{
+    ctx.globalAlpha=i/20;
+    ctx.fillStyle="magenta";
+    ctx.fillRect(p.x,p.y,40,40);
+  });
+  ctx.globalAlpha=1;
+
+  // player
+  ctx.save();
+  ctx.translate(player.x+20,player.y+20);
+  ctx.rotate(mode==="wave"?0:player.rot);
+  ctx.fillStyle="white";
+  ctx.fillRect(-20,-20,40,40);
+  ctx.restore();
+
+  if(showHit){
+    ctx.strokeStyle="lime";
+    ctx.strokeRect(player.x,player.y,40,40);
+  }
+
+  // hazards
+  hazards.forEach(h=>{
+    h.x-=speed*timeScale;
+    ctx.fillStyle=h.fake?"#333":"red";
+    ctx.beginPath();
+    ctx.moveTo(h.x,ground());
+    ctx.lineTo(h.x+20,ground()-40);
+    ctx.lineTo(h.x+40,ground());
+    ctx.fill();
+
+    if(!h.fake &&
+       player.x<h.x+40 &&
+       player.x+40>h.x &&
+       player.y+40>ground()-40){
+      deaths++;
+      practice?player.vy=-12:reset();
+    }
+  });
+
+  ctx.restore();
+
+  progress+=0.15*timeScale;
+  document.getElementById("progress").style.width=(progress%100)+"%";
+  document.getElementById("energy").style.width=energy+"%";
+}
+
+update();
+</script>
+</body>
+</html>
